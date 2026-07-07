@@ -1,4 +1,4 @@
-// middleware.ts
+// proxy.ts (Next.js 16 — pengganti middleware.ts yang sudah deprecated)
 // Lindungi semua route admin dari pengunjung tanpa sesi.
 //
 // Strategi:
@@ -6,19 +6,12 @@
 // - Route admin & API admin → butuh cookie 'admin-session'
 // - Verifikasi token sungguhan dilakukan di setiap API route via verifyAdminToken
 //
-// Middleware di Next.js edge runtime tidak bisa pakai Firebase Admin SDK,
+// Next.js 16 edge runtime tidak bisa pakai Firebase Admin SDK,
 // jadi verifikasi kedaluwarsa token dilakukan server-side di route handler.
 
 import { NextResponse, type NextRequest } from "next/server";
 
 // Route-route yang TIDAK butuh auth:
-// - /login → halaman login itu sendiri
-// - /api/public/* → endpoint publik untuk website tamu (config, gallery, announcements read)
-// - /api/rsvp/submit → tamu anonymous submit RSVP
-// - /api/guestbook/submit → tamu anonymous submit guestbook
-// - /api/fcm-token → tamu daftarkan FCM token push notif
-// - /api/visit-log → website tamu log visit
-// - /api/live-visitor → website tamu heartbeat live visitor
 const PUBLIC_PATHS = [
   "/login",
   "/api/public/",
@@ -33,7 +26,8 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p));
 }
 
-export function middleware(req: NextRequest) {
+// Next.js 16: export function "proxy" (sebelumnya "middleware" di Next.js 15)
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow public paths
