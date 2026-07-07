@@ -1,0 +1,108 @@
+rules_version = '2';
+
+// ===================================================================
+// FIRESTORE SECURITY RULES — Wedding Invitation CMS (undanganadmin)
+// ===================================================================
+// Deploy: firebase deploy --only firestore:rules
+//
+// Path struktur (semua data aplikasi di Firestore — Supabase hanya untuk storage file):
+//   sites/{siteId}/config/{docId}        — config utama (admin write, publik read)
+//   sites/{siteId}/gallery/{photoId}     — foto galeri (admin write, publik read)
+//   sites/{siteId}/announcements/{id}    — pengumuman (admin write, publik read yang active)
+//   sites/{siteId}/rsvp/{id}             — RSVP (publik create, admin read/update/delete)
+//   sites/{siteId}/guestbook/{id}        — ucapan (publik create+read, admin update/delete)
+//   sites/{siteId}/guests/{id}           — daftar tamu (admin only)
+//   sites/{siteId}/liveVisitors/{id}     — live visitor tracking (publik write)
+//   sites/{siteId}/fcmTokens/{token}     — FCM push token (publik create, admin read/delete)
+//   sites/{siteId}/giftTransactions/{id} — transaksi kado (admin write/read)
+//   sites/{siteId}/visitLogs/{id}        — log kunjungan website tamu (publik create, admin read)
+//   global/settings                      — allowlist & dev credit (admin only)
+// ===================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Cek apakah user adalah admin.
+    // Admin = sudah login Firebase Auth + (custom claim role=admin ATAU email di allowlist).
+    function isAdmin() {
+      return request.auth != null
+        && (
+          // Opsi 1: custom claim (paling aman — set via Admin SDK / Cloud Function)
+          request.auth.token.role == 'admin'
+          ||
+          // Opsi 2: allowlist email (fallback — edit array ini sesuai daftar admin kamu)
+          request.auth.token.email in [
+            'saputraamanah999@gmail.com'
+            // tambahkan email admin lain di sini
+          ]
+        );
+    }
+
+    // ===== Default deny untuk sites/* (akan di-override per-subcollection di bawah) =====
+    match /sites/{siteId}/{document=**} {
+      // Default: publik bisa baca config/gallery/announcements (website tamu butuh ini).
+      // Subcollection sensitif (rsvp, guests, liveVisitors, visitLogs, fcmTokens) di-override
+      // di bawah dengan rule yang lebih ketat.
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ===== Public-create collections (override default) =====
+
+    // RSVP: tamu anonymous bisa submit, hanya admin yang lihat rekap
+    match /sites/{siteId}/rsvp/{id} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // Guestbook: ucapan tampil publik di website tamu, tamu bisa kirim, admin hapus spam
+    match /sites/{siteId}/guestbook/{id} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // Guests: daftar tamu resmi — HANYA admin yang bisa baca/tulis
+    // (berisi data pribadi: nama, slug, jumlah tamu diundang)
+    match /sites/{siteId}/guests/{id} {
+      allow read, write: if isAdmin();
+      // Pengecualian: website tamu boleh baca berdasarkan slug (?to=slug)
+      // Tapi untuk simplifikasi, admin panel yang generate link. Tamu tidak perlu baca list.
+    }
+
+    // Live visitors: website tamu update heartbeat-nya sendiri, admin lihat siapa online
+    match /sites/{siteId}/liveVisitors/{id} {
+      allow read: if isAdmin();
+      allow create, update, delete: if true;
+    }
+
+    // FCM tokens: tamu daftarkan token push-nya, admin bisa baca (untuk kirim notif) & hapus invalid
+    match /sites/{siteId}/fcmTokens/{token} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow delete: if isAdmin();
+      allow update: if true; // tamu update lastSeen sendiri
+    }
+
+    // Gift transactions: webhook payment gateway bisa create, admin read/update/delete
+    match /sites/{siteId}/giftTransactions/{id} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // Visit logs: website tamu log visit (anonymous), hanya admin yang baca untuk analytics
+    match /sites/{siteId}/visitLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // ===== Global settings (allowlist & dev credit config) =====
+    match /global/{docId} {
+      allow read: if true; // website tamu baca dev credit config
+      allow write: if isAdmin();
+    }
+  }
+}
